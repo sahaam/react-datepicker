@@ -41,7 +41,9 @@ export default class Month extends React.Component {
     setOpen: PropTypes.func,
     shouldCloseOnSelect: PropTypes.bool,
     renderDayContents: PropTypes.func,
-    showMonthYearPicker: PropTypes.bool
+    showMonthYearPicker: PropTypes.bool,
+    updateSelection: PropTypes.func.isRequired,
+    showTimeSelect: PropTypes.bool
   };
 
   handleDayClick = (day, event) => {
@@ -60,6 +62,47 @@ export default class Month extends React.Component {
     if (this.props.onMouseLeave) {
       this.props.onMouseLeave();
     }
+  };
+
+  onInputKeyDown = event => {
+    const eventKey = event.key;
+    const shiftDown = event.shiftKey;
+    const copy = utils.newDate(this.props.preSelection);
+    let newSelection;
+    switch (eventKey) {
+      case "ArrowLeft":
+        newSelection = utils.subDays(copy, 1);
+        break;
+      case "ArrowRight":
+        newSelection = utils.addDays(copy, 1);
+        break;
+      case "ArrowUp":
+        newSelection = utils.subWeeks(copy, 1);
+        break;
+      case "ArrowDown":
+        newSelection = utils.addWeeks(copy, 1);
+        break;
+      case "PageUp":
+        newSelection = utils.subMonths(copy, 1);
+        break;
+      case "PageDown":
+        newSelection = utils.addMonths(copy, 1);
+        break;
+      case "Home":
+        newSelection = utils.subYears(copy, 1);
+        break;
+      case "End":
+        newSelection = utils.addYears(copy, 1);
+        break;
+      case " ":
+      case "Enter":
+        event.preventDefault();
+        this.handleDayClick(this.props.preSelection, event);
+        break;
+    }
+    if (!newSelection) return; // Let the input component handle this keydown
+    event.preventDefault();
+    this.props.updateSelection(newSelection);
   };
 
   isWeekInMonth = startOfWeek => {
@@ -210,6 +253,8 @@ export default class Month extends React.Component {
         onMouseLeave={this.handleMouseLeave}
         role="listbox"
         aria-label={"month-" + utils.formatDate(this.props.day, "YYYY-MM")}
+        tabIndex={0}
+        onKeyDown={this.onInputKeyDown}
       >
         {showMonthYearPicker ? this.renderMonths() : this.renderWeeks()}
       </div>

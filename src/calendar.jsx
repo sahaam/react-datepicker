@@ -7,6 +7,7 @@ import InputTime from "./inputTime";
 import React from "react";
 import PropTypes from "prop-types";
 import classnames from "classnames";
+import FocusTrap from "focus-trap-react";
 import CalendarContainer from "./calendar_container";
 import {
   newDate,
@@ -32,7 +33,8 @@ import {
   monthDisabledAfter,
   getEffectiveMinDate,
   getEffectiveMaxDate,
-  addZero
+  addZero,
+  getStartOfMonth
 } from "./date_utils";
 
 const DROPDOWN_FOCUS_CLASSNAMES = [
@@ -126,7 +128,9 @@ export default class Calendar extends React.Component {
     renderCustomHeader: PropTypes.func,
     renderDayContents: PropTypes.func,
     onDayMouseEnter: PropTypes.func,
-    onMonthMouseLeave: PropTypes.func
+    onMonthMouseLeave: PropTypes.func,
+    updateSelection: PropTypes.func.isRequired,
+    deferFocusInput: PropTypes.func.isRequired
   };
 
   static get defaultProps() {
@@ -246,6 +250,15 @@ export default class Calendar extends React.Component {
     if (this.props.onYearChange) {
       this.props.onYearChange(date);
     }
+    this.handleSelectionChange(date);
+  };
+
+  handleSelectionChange = date => {
+    if (this.props.adjustDateOnChange) {
+      this.props.updateSelection(date);
+    } else {
+      this.props.updateSelection(getStartOfMonth(newDate(date)));
+    }
   };
 
   handleMonthChange = date => {
@@ -260,6 +273,7 @@ export default class Calendar extends React.Component {
         this.props.setOpen(true);
       }
     }
+    this.handleSelectionChange(date);
   };
 
   handleMonthYearChange = date => {
@@ -652,6 +666,8 @@ export default class Calendar extends React.Component {
             renderDayContents={this.props.renderDayContents}
             disabledKeyboardNavigation={this.props.disabledKeyboardNavigation}
             showMonthYearPicker={this.props.showMonthYearPicker}
+            updateSelection={this.props.updateSelection}
+            showTimeSelect={this.props.showTimeSelect}
           />
         </div>
       );
@@ -703,22 +719,56 @@ export default class Calendar extends React.Component {
     }
   };
 
+  handleDeactivateFocusTrap = () => {
+    this.props.setOpen(false);
+    this.props.deferFocusInput();
+  };
+
   render() {
     const Container = this.props.container || CalendarContainer;
-    return (
-      <Container
-        className={classnames("react-datepicker", this.props.className, {
-          "react-datepicker--time-only": this.props.showTimeSelectOnly
-        })}
-      >
-        {this.renderPreviousButton()}
-        {this.renderNextButton()}
-        {this.renderMonths()}
-        {this.renderTodayButton()}
-        {this.renderTimeSection()}
-        {this.renderInputTimeSection()}
-        {this.props.children}
-      </Container>
-    );
+    const trapFocus = !this.props.inline;
+    const initialFocusTarget = this.props.showTimeSelectOnly
+      ? ".react-datepicker__time-box"
+      : ".react-datepicker__month";
+    if (trapFocus) {
+      return (
+        <Container
+          className={classnames("react-datepicker", this.props.className, {
+            "react-datepicker--time-only": this.props.showTimeSelectOnly
+          })}
+        >
+          <FocusTrap
+            focusTrapOptions={{
+              onDeactivate: this.handleDeactivateFocusTrap,
+              initialFocus: initialFocusTarget
+            }}
+          >
+            {this.renderPreviousButton()}
+            {this.renderNextButton()}
+            {this.renderMonths()}
+            {this.renderTodayButton()}
+            {this.renderTimeSection()}
+            {this.renderInputTimeSection()}
+            {this.props.children}
+          </FocusTrap>
+        </Container>
+      );
+    } else {
+      return (
+        <Container
+          className={classnames("react-datepicker", this.props.className, {
+            "react-datepicker--time-only": this.props.showTimeSelectOnly
+          })}
+        >
+          {this.renderPreviousButton()}
+          {this.renderNextButton()}
+          {this.renderMonths()}
+          {this.renderTodayButton()}
+          {this.renderTimeSection()}
+          {this.renderInputTimeSection()}
+          {this.props.children}
+        </Container>
+      );
+    }
   }
 }

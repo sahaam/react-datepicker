@@ -1,5 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
+import classnames from "classnames";
 import {
   getHours,
   getMinutes,
@@ -9,8 +10,18 @@ import {
   formatDate,
   isTimeInDisabledRange,
   isTimeDisabled,
-  timesToInjectAfter
+  timesToInjectAfter,
+  setTime,
+  isSameDay
 } from "./date_utils";
+
+function doHoursAndMinutesAlign(time1, time2) {
+  if (time1 == null || time2 == null) return false;
+  return (
+    getHours(time1) === getHours(time2) &&
+    getMinutes(time1) === getMinutes(time2)
+  );
+}
 
 export default class Time extends React.Component {
   static propTypes = {
@@ -43,15 +54,129 @@ export default class Time extends React.Component {
     );
   };
 
+  constructor(...args) {
+    super(...args);
+
+    const times = this.generateTimes();
+    let preSelection = times.reduce((preSelection, time) => {
+      if (preSelection) return preSelection;
+      if (doHoursAndMinutesAlign(time, this.props.selected)) {
+        return time;
+      }
+    }, null);
+
+    if (preSelection == null) {
+      // there is no exact pre-selection, find the element closest to the selected time and preselect it
+      const currH = this.props.selected
+        ? getHours(this.props.selected)
+        : getHours(newDate());
+      const currM = this.props.selected
+        ? getMinutes(this.props.selected)
+        : getMinutes(newDate());
+      const closestTimeIndex = Math.floor(
+        (60 * currH + currM) / this.props.intervals
+      );
+      const closestMinutes = closestTimeIndex * this.props.intervals;
+      preSelection = setTime(newDate(), {
+        hour: Math.floor(closestMinutes / 60),
+        minute: closestMinutes % 60,
+        second: 0,
+        millisecond: 0
+      });
+    }
+
+    this.timeFormat = "hh:mm A";
+    this.state = {
+      preSelection,
+      needsScrollToPreSelection: false,
+      readInstructions: false,
+      isFocused: false
+    };
+  }
+
   componentDidMount() {
     // code to ensure selected time will always be in focus within time window when it first appears
+
     this.list.scrollTop = Time.calcCenterPosition(
       this.props.monthRef
         ? this.props.monthRef.clientHeight - this.header.clientHeight
         : this.list.clientHeight,
-      this.centerLi
+      this.selectedLi || this.preselectedLi
     );
   }
+
+  componentDidUpdate(prevProps) {
+    // if selection changed, scroll to the selected item
+    if (
+      this.props.selected &&
+      isSameDay(prevProps.selected, this.props.selected) === false
+    ) {
+      const scrollToElement = this.selectedLi;
+
+      if (scrollToElement) {
+        // an element matches the selected time, scroll to it
+        scrollToElement.scrollIntoView({
+          behavior: "instant",
+          block: "nearest",
+          inline: "nearest"
+        });
+      }
+
+      // update preSelection to the selection
+      this.setState({
+        preSelection: this.props.selected
+      });
+    }
+
+    if (this.state.needsScrollToPreSelection) {
+      const scrollToElement = this.preselectedLi;
+
+      if (scrollToElement) {
+        // an element matches the selected time, scroll to it
+        scrollToElement.scrollIntoView({
+          behavior: "instant",
+          block: "nearest",
+          inline: "nearest"
+        });
+      }
+
+      this.setState({ needsScrollToPreSelection: false });
+    }
+  }
+
+  onFocus = () => {
+    this.setState({ isFocused: true });
+  };
+
+  onBlur = () => {
+    this.setState({ isFocused: false });
+  };
+
+  onInputKeyDown = event => {
+    const eventKey = event.key;
+    const shiftDown = event.shiftKey;
+    const copy = newDate(this.state.preSelection);
+    let newSelection;
+    switch (eventKey) {
+      case "ArrowUp":
+        newSelection = addMinutes(copy, -this.props.intervals);
+        break;
+      case "ArrowDown":
+        newSelection = addMinutes(copy, this.props.intervals);
+        break;
+      case " ":
+      case "Enter":
+        event.preventDefault();
+        this.handleClick(this.state.preSelection);
+        break;
+    }
+    if (!newSelection) return; // Let the input component handle this keydown
+    event.preventDefault();
+    this.setState({
+      preSelection: newSelection,
+      needsScrollToPreSelection: true
+    });
+  };
 
   handleClick = time => {
     if (
@@ -67,11 +192,16 @@ export default class Time extends React.Component {
     this.props.onChange(time);
   };
 
-  liClasses = (time, currH, currM) => {
+  liClasses = (time, activeTime) => {
     let classes = ["react-datepicker__time-list-item"];
 
-    if (currH === getHours(time) && currM === getMinutes(time)) {
+    if (doHoursAndMinutesAlign(time, activeTime)) {
       classes.push("react-datepicker__time-list-item--selected");
+    } else if (
+      this.state.preSelection &&
+      doHoursAndMinutesAlign(time, this.state.preSelection)
+    ) {
+      classes.push("react-datepicker__time-list-item--preselected");
     }
     if (
       ((this.props.minTime || this.props.maxTime) &&
@@ -93,13 +223,9 @@ export default class Time extends React.Component {
     return classes.join(" ");
   };
 
-  renderTimes = () => {
+  generateTimes = () => {
     let times = [];
-    const format = this.props.format ? this.props.format : "p";
     const intervals = this.props.intervals;
-    const activeTime = this.props.selected ? this.props.selected : newDate();
-    const currH = getHours(activeTime);
-    const currM = getMinutes(activeTime);
     let base = getStartOfDay(newDate());
     const multiplier = 1440 / intervals;
     const sortedInjectTimes =
@@ -122,20 +248,37 @@ export default class Time extends React.Component {
         times = times.concat(timesToInject);
       }
     }
+    return times;
+  };
 
+  renderTimes = () => {
+    const times = this.generateTimes();
+    const activeTime = this.props.selected ? this.props.selected : newDate();
+    const format = this.props.format ? this.props.format : this.timeFormat;
     return times.map((time, i) => (
       <li
         key={i}
         onClick={this.handleClick.bind(this, time)}
-        className={this.liClasses(time, currH, currM)}
+        className={this.liClasses(time, activeTime)}
         ref={li => {
           if (
-            (currH === getHours(time) && currM === getMinutes(time)) ||
-            (currH === getHours(time) && !this.centerLi)
+            li &&
+            li.classList.contains(
+              "react-datepicker__time-list-item--preselected"
+            )
           ) {
-            this.centerLi = li;
+            this.preselectedLi = li;
+          }
+
+          if (
+            li &&
+            li.classList.contains("react-datepicker__time-list-item--selected")
+          ) {
+            this.selectedLi = li;
           }
         }}
+        role="option"
+        id={i}
       >
         {formatDate(time, format)}
       </li>
@@ -148,14 +291,19 @@ export default class Time extends React.Component {
       height = this.props.monthRef.clientHeight - this.header.clientHeight;
     }
 
+    const classNames = classnames("react-datepicker__time-container", {
+      "react-datepicker__time-container--with-today-button": this.props
+        .todayButton,
+      "react-datepicker__time-container--focus": this.state.isFocused
+    });
+
+    const timeBoxClassNames = classnames(
+      "react-datepicker__time-box",
+      "react-datepicker__time-box--accessible"
+    );
+
     return (
-      <div
-        className={`react-datepicker__time-container ${
-          this.props.todayButton
-            ? "react-datepicker__time-container--with-today-button"
-            : ""
-        }`}
-      >
+      <div className={classNames}>
         <div
           className="react-datepicker__header react-datepicker__header--time"
           ref={header => {
@@ -167,13 +315,20 @@ export default class Time extends React.Component {
           </div>
         </div>
         <div className="react-datepicker__time">
-          <div className="react-datepicker__time-box">
+          <div
+            className={timeBoxClassNames}
+            tabIndex={0}
+            onKeyDown={this.onInputKeyDown}
+            onFocus={this.onFocus}
+            onBlur={this.onBlur}
+          >
             <ul
               className="react-datepicker__time-list"
               ref={list => {
                 this.list = list;
               }}
               style={height ? { height } : {}}
+              role="listbox"
             >
               {this.renderTimes.bind(this)()}
             </ul>
